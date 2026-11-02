@@ -1,0 +1,56 @@
+GitScope milestone two — final verification, 1 November 2026
+Xcode 27.1 / Swift 6.4 / Apple Silicon
+Command: scripts/verify.sh (coverage-instrumented package XCTest + unsigned native app build)
+
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testBinaryRenameAndEmptyCommit]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testBinaryRenameAndEmptyCommit]' passed (0.002 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testEmptyMetricsAndDeterministicTieBreak]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testEmptyMetricsAndDeterministicTieBreak]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testInvalidRepositoryReportsError]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testInvalidRepositoryReportsError]' passed (0.097 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testMalformedOutputFailsInsteadOfPublishingPartialMetrics]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testMalformedOutputFailsInsteadOfPublishingPartialMetrics]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testMetadataAndUnusualPaths]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testMetadataAndUnusualPaths]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testMetricsFrequencyChurnBinaryAuthorsAndMonthGaps]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testMetricsFrequencyChurnBinaryAuthorsAndMonthGaps]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testRealGitReadOnlyIntegration]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testRealGitReadOnlyIntegration]' passed (1.929 seconds).
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testTreeSizeAndSubmodulePolicy]' started.
+Test Case '-[GitScopeCoreTests.GitScopeCoreTests testTreeSizeAndSubmodulePolicy]' passed (0.000 seconds).
+	 Executed 8 tests, with 0 failures (0 unexpected) in 2.029 (2.030) seconds
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testBranchSelectionDefaultsAndCacheIsolationWithoutCheckout]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testBranchSelectionDefaultsAndCacheIsolationWithoutCheckout]' passed (2.930 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testBulkFilterRunsBeforePathFilter]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testBulkFilterRunsBeforePathFilter]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCachedIncrementalAndRewriteImportsMatchFullImport]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCachedIncrementalAndRewriteImportsMatchFullImport]' passed (4.746 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCancelledWriteKeepsPublishedSnapshot]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCancelledWriteKeepsPublishedSnapshot]' passed (0.003 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCorruptCachePayloadReimportsSafely]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCorruptCachePayloadReimportsSafely]' passed (2.090 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCouplingCountsEachPathOnceAndSuppressesOversizedRun]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCouplingCountsEachPathOnceAndSuppressesOversizedRun]' passed (0.003 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCouplingSupportConfidenceThresholdsAndEvidence]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testCouplingSupportConfidenceThresholdsAndEvidence]' passed (0.001 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testEmptyCommitPreservedOnlyWithoutPathScope]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testEmptyCommitPreservedOnlyWithoutPathScope]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testGlobAndExtensionPolicy]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testGlobAndExtensionPolicy]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testOptionsRoundTrip]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testOptionsRoundTrip]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testOwnershipChurnIsScopedToFileAndEmailIsNormalized]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testOwnershipChurnIsScopedToFileAndEmailIsNormalized]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testShallowHistoryChangeInvalidatesSameHeadCache]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testShallowHistoryChangeInvalidatesSameHeadCache]' passed (1.956 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testSharedDatesAuthorPathsAndExclusions]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testSharedDatesAuthorPathsAndExclusions]' passed (0.000 seconds).
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testSQLiteRoundTripIsolationAndRollback]' started.
+Test Case '-[GitScopeCoreTests.MilestoneTwoTests testSQLiteRoundTripIsolationAndRollback]' passed (0.005 seconds).
+	 Executed 14 tests, with 0 failures (0 unexpected) in 11.736 (11.738) seconds
+	 Executed 22 tests, with 0 failures (0 unexpected) in 13.765 (13.767) seconds
+	 Executed 22 tests, with 0 failures (0 unexpected) in 13.765 (13.769) seconds
+** BUILD SUCCEEDED **
+
+Native Xcode test-manager execution: blocked by sandbox denial to com.apple.testmanagerd.control.
+Native UI smoke test: completed; see VALIDATION.md.
