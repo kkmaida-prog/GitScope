@@ -1,0 +1,10 @@
+.build/
+.build-verification/
+.DS_Store
+xcuserdata/
+*.xcuserstate
+
+.swiftpm/
+DerivedData/
+*.profraw
+*.profdata
