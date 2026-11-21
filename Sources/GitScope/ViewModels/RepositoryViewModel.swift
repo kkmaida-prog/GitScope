@@ -11,6 +11,8 @@ struct RecentRepository: Identifiable, Codable {
 @MainActor final class RepositoryViewModel: ObservableObject {
     @Published var snapshot: RepositorySnapshot?
     @Published var metrics: RepositoryMetrics?
+    @Published var codeQuality: CodeQualityReport?
+    @Published var codeQualityCacheStatus: CodeQualityCacheStatus?
     @Published var options = AnalysisOptions()
     @Published var isLoading = false
     @Published var error: String?
@@ -63,8 +65,13 @@ struct RecentRepository: Identifiable, Codable {
                 else { loadedOptions = AnalysisOptions() }
                 status = "Computing activity, ownership and coupling…"
                 let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(result, options: loadedOptions) }.value
+                status = "Checking selected-revision code quality…"
+                let quality = await Task.detached(priority: .userInitiated) {
+                    CodeQualityCacheService(cacheURL: RepositoryCache.defaultURL)
+                        .loadOrCompute(snapshot: result, metrics: computed, options: loadedOptions)
+                }.value
                 try Task.checkCancellation()
-                snapshot = result; metrics = computed; options = loadedOptions; accessURL = url
+                snapshot = result; metrics = computed; codeQuality = quality.report; codeQualityCacheStatus = quality.status; options = loadedOptions; accessURL = url
                 selectedHotspot = nil; search = ""; remember(url, root: result.root)
             } catch is CancellationError { }
             catch { self.error = error.localizedDescription }
@@ -77,8 +84,12 @@ struct RecentRepository: Identifiable, Codable {
         task = Task {
             defer { isLoading = false }
             let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(snapshot, options: draft) }.value
+            let quality = await Task.detached(priority: .userInitiated) {
+                CodeQualityCacheService(cacheURL: RepositoryCache.defaultURL)
+                    .loadOrCompute(snapshot: snapshot, metrics: computed, options: draft)
+            }.value
             guard !Task.isCancelled else { return }
-            metrics = computed; options = draft; selectedHotspot = nil
+            metrics = computed; codeQuality = quality.report; codeQualityCacheStatus = quality.status; options = draft; selectedHotspot = nil
             if let data = try? JSONEncoder().encode(draft) { defaults.set(data, forKey: "options." + snapshot.root.path) }
         }
     }
