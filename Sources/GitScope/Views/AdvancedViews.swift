@@ -5,6 +5,7 @@ import GitScopeCore
 struct OwnershipView: View {
     let metrics: RepositoryMetrics
     let inspect: (String) -> Void
+    var openFolder: (String) -> Void = { _ in }
     @State private var query = ""
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -23,6 +24,7 @@ struct OwnershipView: View {
                 }.padding(.vertical, 5)
                 Divider()
             }
+            FolderOwnershipSection(metrics: metrics, open: openFolder)
             Text("Contribution concentration by file").font(.title3.bold())
             Text("The leading author's share of eligible commits touching each file. Select a row to inspect the underlying history.").font(.caption).foregroundStyle(.secondary)
             TextField("Filter file paths", text: $query).textFieldStyle(.roundedBorder)

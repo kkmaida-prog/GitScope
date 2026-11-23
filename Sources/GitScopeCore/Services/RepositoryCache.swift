@@ -1,7 +1,8 @@
 import Foundation
 import SQLite3
 
-/// A versioned, disposable SQLite cache. Each row is an atomically published snapshot.
+/// A versioned, disposable SQLite cache. Payload version 3 adds manifest history; older rows are ignored and replaced.
+/// Each row is an atomically published snapshot.
 /// Open a connection per operation; connections never cross task boundaries.
 public struct RepositoryCache: Sendable {
     public let url: URL
@@ -31,7 +32,7 @@ public struct RepositoryCache: Sendable {
     public func read(root: URL, reference: String) throws -> RepositorySnapshot? {
         try connection { database in
             var statement: OpaquePointer?
-            guard sqlite3_prepare_v2(database, "SELECT payload FROM snapshots WHERE repository=? AND reference=? AND version=2", -1, &statement, nil) == SQLITE_OK, let statement else { throw GitError.failed("Cannot read the local cache.") }
+            guard sqlite3_prepare_v2(database, "SELECT payload FROM snapshots WHERE repository=? AND reference=? AND version=3", -1, &statement, nil) == SQLITE_OK, let statement else { throw GitError.failed("Cannot read the local cache.") }
             defer { sqlite3_finalize(statement) }
             bind(root.standardizedFileURL.path, to: 1, in: statement); bind(reference, to: 2, in: statement)
             let status = sqlite3_step(statement)
@@ -50,7 +51,7 @@ public struct RepositoryCache: Sendable {
             try execute("BEGIN IMMEDIATE", on: database)
             do {
                 var statement: OpaquePointer?
-                guard sqlite3_prepare_v2(database, "INSERT OR REPLACE INTO snapshots(repository, reference, version, payload) VALUES(?,?,2,?)", -1, &statement, nil) == SQLITE_OK, let statement else { throw GitError.failed("Cannot prepare the local cache.") }
+                guard sqlite3_prepare_v2(database, "INSERT OR REPLACE INTO snapshots(repository, reference, version, payload) VALUES(?,?,3,?)", -1, &statement, nil) == SQLITE_OK, let statement else { throw GitError.failed("Cannot prepare the local cache.") }
                 defer { sqlite3_finalize(statement) }
                 bind(snapshot.root.standardizedFileURL.path, to: 1, in: statement); bind(snapshot.reference, to: 2, in: statement)
                 let bound = data.withUnsafeBytes { sqlite3_bind_blob(statement, 3, $0.baseAddress, Int32($0.count), unsafeBitCast(-1, to: sqlite3_destructor_type.self)) }

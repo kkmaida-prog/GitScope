@@ -32,9 +32,16 @@ public struct RepositorySnapshot: Sendable, Codable {
     public let importMode: ImportMode
     public let cacheWarning: String?
     public let importedCommits: Int
-    public init(root: URL, head: String, shallow: Bool, commits: [Commit], fileSizes: [String: Int], reference: String = "HEAD", branches: [String] = [], importMode: ImportMode = .fresh, importedCommits: Int = 0, cacheWarning: String? = nil) {
+    /// Parsed changes to dependency, build and toolchain manifests made by reachable non-merge commits.
+    public let manifests: [ManifestRevision]
+    /// Parsed manifests present at the selected revision, by path.
+    public let currentManifests: [String: [DependencyDeclaration]]
+    /// Set when dependency history could not be read; commit metrics remain valid.
+    public let manifestWarning: String?
+    public init(root: URL, head: String, shallow: Bool, commits: [Commit], fileSizes: [String: Int], reference: String = "HEAD", branches: [String] = [], importMode: ImportMode = .fresh, importedCommits: Int = 0, cacheWarning: String? = nil,
+                manifests: [ManifestRevision] = [], currentManifests: [String: [DependencyDeclaration]] = [:], manifestWarning: String? = nil) {
         self.root = root; self.head = head; self.shallow = shallow; self.commits = commits; self.fileSizes = fileSizes
-        self.cacheWarning = cacheWarning
+        self.cacheWarning = cacheWarning; self.manifests = manifests; self.currentManifests = currentManifests; self.manifestWarning = manifestWarning
         self.reference = reference; self.branches = branches; self.importMode = importMode; self.importedCommits = importedCommits
     }
 }
@@ -69,4 +76,7 @@ public struct RepositoryMetrics: Sendable {
     public let couplingLimited: Bool
     public let excludedCommits: Int
     public let currentFileCount: Int
+    public let structure: RepositoryStructure
+    public let dependencies: DependencyInsights
+    public let legacy: LegacyInsights
 }

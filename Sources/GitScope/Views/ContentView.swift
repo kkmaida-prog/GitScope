@@ -16,6 +16,9 @@ struct ContentView: View {
                     Label("Hotspots", systemImage: "flame").tag("Hotspots")
                     Label("Ownership", systemImage: "person.2").tag("Ownership")
                     Label("Coupling", systemImage: "link").tag("Coupling")
+                    Label("Structure", systemImage: "folder.badge.gearshape").tag("Structure")
+                    Label("Dependencies", systemImage: "shippingbox").tag("Dependencies")
+                    Label("Legacy", systemImage: "exclamationmark.triangle").tag("Legacy")
                 }.listStyle(.sidebar)
                 if !model.recents.isEmpty {
                     Text("RECENT REPOSITORIES").font(.caption2).foregroundStyle(.secondary)
@@ -38,8 +41,12 @@ struct ContentView: View {
                             if let warning = snapshot.cacheWarning { Label(warning, systemImage: "exclamationmark.triangle").font(.caption).foregroundStyle(.orange) }
                             switch model.selection {
                             case "Hotspots": hotspots(metrics)
-                            case "Ownership": OwnershipView(metrics: metrics) { path in model.selectedHotspot = metrics.hotspots.first { $0.path == path } }
+                            case "Ownership": OwnershipView(metrics: metrics, inspect: { path in model.selectedHotspot = metrics.hotspots.first { $0.path == path } },
+                                                            openFolder: model.showFolder)
                             case "Coupling": CouplingView(metrics: metrics) { selectedPair = $0 }
+                            case "Structure": StructureView(model: model, metrics: metrics)
+                            case "Dependencies": DependenciesView(model: model, metrics: metrics)
+                            case "Legacy": LegacyView(model: model, metrics: metrics)
                             default: overview(snapshot, metrics)
                             }
                         }.padding(32)
@@ -64,6 +71,7 @@ struct ContentView: View {
             .sheet(item: $model.selectedHotspot) { hotspot in FileInspector(hotspot: hotspot) }
             .sheet(isPresented: $showFilters) { if let snapshot = model.snapshot { FilterEditor(options: model.options, snapshot: snapshot, apply: model.apply) } }
             .sheet(item: $selectedPair) { pair in CouplingInspector(pair: pair) }
+            .sheet(item: $model.inspectedLocation) { location in CodeInspector(location: location, model: model) }
         }.tint(.teal)
     }
     private func header(_ snapshot: RepositorySnapshot) -> some View {
@@ -121,10 +129,21 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text("Directory activity").font(.title3.bold())
                     ForEach(metrics.directories.prefix(6)) { directory in
-                        HStack { Text(directory.path).font(.system(.body, design: .monospaced)); Spacer(); Text("\(directory.commits) commits · \(directory.churn) churn").foregroundStyle(.secondary) }
+                        Button { model.showFolder(directory.path == "(root)" ? "" : directory.path) } label: {
+                            HStack { Text(directory.path).font(.system(.body, design: .monospaced)); Spacer(); Text("\(directory.commits) commits · \(directory.churn) churn").foregroundStyle(.secondary) }
+                                .contentShape(Rectangle())
+                        }.buttonStyle(.plain)
                     }
                 }.card()
             }
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Codebase").font(.title3.bold())
+                HStack(spacing: 18) {
+                    Button { model.selection = "Structure" } label: { Label("\(metrics.structure.modules.count) modules · \(max(0, metrics.structure.folders.count - 1)) folders", systemImage: "folder.badge.gearshape") }
+                    Button { model.selection = "Dependencies" } label: { Label("\(metrics.dependencies.summaries.filter(\.isCurrent).count) dependencies and tools", systemImage: "shippingbox") }
+                    Button { model.selection = "Legacy" } label: { Label("\(metrics.legacy.findings.count) legacy findings", systemImage: "exclamationmark.triangle") }
+                }
+            }.card()
             HStack { Text("Most frequently changed").font(.title3.bold()); Spacer(); Button("View all hotspots") { model.selection = "Hotspots" } }
             hotspotRows(Array(metrics.hotspots.prefix(5)))
             Text("Hotspots are inspection candidates, not evidence of defects. Size is the current Git blob size in bytes; missing size means the historical path is absent at this revision. Renamed paths are shown separately in this MVP.").font(.caption).foregroundStyle(.secondary)
