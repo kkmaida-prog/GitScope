@@ -5,6 +5,7 @@ import GitScopeCore
 struct ContentView: View {
     @StateObject private var model = RepositoryViewModel()
     @State private var showFilters = false
+    @State private var qualityScope: CodeQualityScope = .production
     @State private var selectedPair: CouplingPair?
     var body: some View {
         NavigationSplitView {
@@ -16,6 +17,7 @@ struct ContentView: View {
                     Label("Hotspots", systemImage: "flame").tag("Hotspots")
                     Label("Ownership", systemImage: "person.2").tag("Ownership")
                     Label("Coupling", systemImage: "link").tag("Coupling")
+                    Label("Code Quality", systemImage: "checkmark.shield").tag("Code Quality")
                 }.listStyle(.sidebar)
                 if !model.recents.isEmpty {
                     Text("RECENT REPOSITORIES").font(.caption2).foregroundStyle(.secondary)
@@ -40,6 +42,9 @@ struct ContentView: View {
                             case "Hotspots": hotspots(metrics)
                             case "Ownership": OwnershipView(metrics: metrics) { path in model.selectedHotspot = metrics.hotspots.first { $0.path == path } }
                             case "Coupling": CouplingView(metrics: metrics) { selectedPair = $0 }
+                            case "Code Quality":
+                                if let report = model.codeQuality { codeQualityView(report, metrics: metrics) }
+                                else { Text("Code quality results are not available.").foregroundStyle(.secondary) }
                             default: overview(snapshot, metrics)
                             }
                         }.padding(32)
@@ -65,6 +70,132 @@ struct ContentView: View {
             .sheet(isPresented: $showFilters) { if let snapshot = model.snapshot { FilterEditor(options: model.options, snapshot: snapshot, apply: model.apply) } }
             .sheet(item: $selectedPair) { pair in CouplingInspector(pair: pair) }
         }.tint(.teal)
+    }
+    private func codeQualityView(_ report: CodeQualityReport, metrics: RepositoryMetrics) -> some View {
+        let candidates = report.scopedCandidates(qualityScope)
+        let groups = report.scopedDuplicateGroups(qualityScope)
+        return VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Code Quality - refactoring candidates").font(.title2.bold())
+                Spacer()
+                if let status = model.codeQualityCacheStatus {
+                    Label(status.rawValue, systemImage: status == .hit ? "externaldrive.fill.badge.checkmark" : "externaldrive")
+                        .font(.caption).foregroundColor(status == .hit ? .green : .secondary)
+                }
+            }
+            Picker("Code scope", selection: $qualityScope) {
+                ForEach(CodeQualityScope.allCases, id: \.self) { scope in
+                    Text(scope.rawValue).tag(scope)
+                }
+            }.pickerStyle(.segmented).frame(maxWidth: 500)
+            Text("Scores are normalized within the selected scope. Switching scope also filters duplicate blocks; cross-scope matches are not counted in Production or Tests.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Heuristic priority (0–100): 65% change frequency + 25% line churn + 10% detected unique duplicate blocks. A high score is NOT proof of a defect or technical debt.")
+                .font(.subheadline).foregroundStyle(.secondary)
+            Text("Ranking excludes documentation, Swift package manifests (including Package@swift-*), common generated/vendor folders and other non-source files. A file needs at least \(report.minimumFileCommits) historical commits to receive a score.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("\(report.excludedNonCodeFiles) non-code/excluded paths in selected revision · \(report.insufficientHistoryFiles) current source files with insufficient history · \(report.historicalOnlyPaths) historical-only source paths omitted from the scan. Complexity and legacy API signals are planned, not included in the score yet.")
+                .font(.caption).foregroundStyle(.secondary)
+            Text("Duplicate groups are identical normalized blocks of at least 10 non-comment, non-import source lines. Files and line ranges are shown below. These are textual candidates, not semantic clones; content is read from the selected Git revision (without checkout). Uncommitted working-tree changes are not scanned.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Label("\(report.inspectedFiles) source files inspected (all scopes)", systemImage: "doc.text.magnifyingglass")
+                Spacer()
+                Text("\(groups.count) unique blocks · \(groups.reduce(0) { $0 + $1.locations.count }) occurrences")
+            }.font(.subheadline)
+            if report.truncated {
+                Label("Safety limit reached; duplicate blocks may be incomplete.", systemImage: "exclamationmark.triangle").foregroundStyle(.orange)
+            }
+            duplicateScanDiagnostics(report)
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Refactoring priority · \(candidates.count) files").font(.title3.bold())
+                if candidates.isEmpty {
+                    Text("No source files in this scope meet the minimum history threshold. Choose All code or analyze a repository with repeated file changes.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                }
+                ForEach(Array(candidates.prefix(100))) { item in
+                    HStack(alignment: .top, spacing: 14) {
+                        Text("\(item.score)").font(.title3.monospacedDigit().bold())
+                            .frame(width: 46).foregroundStyle(item.score >= 75 ? .orange : .primary)
+                        VStack(alignment: .leading, spacing: 4) {
+                            Button(item.path) {
+                                model.selectedHotspot = metrics.hotspots.first { $0.path == item.path }
+                            }.buttonStyle(.link).font(.system(.body, design: .monospaced))
+                            Text("\(item.frequency) commits · \(item.churn) churn · \(item.duplicateOccurrences) unique duplicate blocks")
+                                .font(.caption).foregroundStyle(.secondary)
+                            if let email = item.leadingAuthor {
+                                Text("Top historical contributor: \(email) (\(item.leadingAuthorShare.formatted(.percent.precision(.fractionLength(0)))))")
+                                    .font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        Spacer()
+                    }.padding(.vertical, 6)
+                    Divider()
+                }
+            }.card()
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Unique duplicate blocks · \(groups.count)").font(.title3.bold())
+                if groups.isEmpty {
+                    Text("No matching code blocks in the selected scope.").foregroundStyle(.secondary)
+                }
+                ForEach(Array(groups.prefix(100))) { group in
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("\(group.lineCount) matching source lines · \(group.locations.count) occurrences")
+                            .font(.subheadline.bold())
+                        ForEach(Array(group.locations.prefix(12))) { location in
+                            Text("\(location.path):\(location.startLine)–\(location.endLine)")
+                        }
+                        if group.locations.count > 12 {
+                            Text("+\(group.locations.count - 12) more occurrences").foregroundStyle(.secondary)
+                        }
+                        Text(group.preview).font(.caption.monospaced()).foregroundStyle(.secondary).lineLimit(3)
+                    }.font(.system(.subheadline, design: .monospaced)).textSelection(.enabled)
+                    Divider()
+                }
+            }.card()
+        }
+    }
+    private func duplicateScanDiagnostics(_ report: CodeQualityReport) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("Duplicate Scan Diagnostics").font(.title3.bold())
+            Text("\(report.inspectedFiles) inspected · \(report.skippedFiles) skipped · \(report.notProcessedFiles) not processed")
+                .font(.subheadline)
+            Text("Read coverage: \(report.attemptedCoveragePercent.formatted(.number.precision(.fractionLength(1))))% of attempted eligible source paths in the selected revision. This is not coverage of all repository files or proof that all duplicates were found.")
+                .font(.caption).foregroundStyle(.secondary)
+            ForEach(DuplicateScanSkipReason.allCases, id: \.self) { reason in
+                let skipped = report.skippedDetails.filter { $0.reason == reason }
+                if !skipped.isEmpty {
+                    DisclosureGroup("\(reason.rawValue) · \(skipped.count)") {
+                        ScrollView {
+                            LazyVStack(alignment: .leading, spacing: 5) {
+                                ForEach(skipped) { item in
+                                    Text(item.path)
+                                        .font(.system(.caption, design: .monospaced))
+                                        .textSelection(.enabled)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                }
+                            }
+                        }.frame(maxHeight: 180)
+                        .padding(.top, 6)
+                    }
+                }
+            }
+            if report.skippedFiles == 0 {
+                Text("No eligible source paths were skipped while scanning.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            if report.notProcessedFiles > 0 || report.truncated {
+                Label("Safety budget or cancellation stopped part of the scan. Results may be incomplete.", systemImage: "exclamationmark.triangle")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if report.revisionBasedScan {
+                Text("\(report.historicalOnlyPaths) historical-only source paths were deliberately excluded: they are not present in the selected commit and are not scan failures. Files are read from Git blobs, including when another branch is selected without checkout.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            } else {
+                Text("Legacy working-tree mode: historical paths missing from disk are reported as skipped.")
+                    .font(.caption2).foregroundStyle(.secondary)
+            }
+        }.card()
     }
     private func header(_ snapshot: RepositorySnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -196,7 +327,7 @@ struct FileInspector: View {
                     Text(commit.subject).fontWeight(.medium)
                     Text("\(commit.id.prefix(10)) · \(commit.author) <\(commit.email)> · \(commit.date.formatted(date: .abbreviated, time: .shortened))").font(.caption).foregroundStyle(.secondary)
                     ForEach(Array(commit.changes.filter { $0.path == hotspot.path }.enumerated()), id: \.offset) { _, change in
-                        Text(change.oldPath.map { "Renamed from \($0) · " } ?? "" ) + Text(change.isBinary ? "Binary" : "+\(change.additions ?? 0) / −\(change.deletions ?? 0)")
+                        Text(change.oldPath.map { "Renamed from \($0) · " } ?? "" ) + Text(change.isBinary ? "Binary" : "+\(change.additions ?? 0) / -\(change.deletions ?? 0)")
                     }
                 }.padding(.vertical, 6).textSelection(.enabled)
             }
