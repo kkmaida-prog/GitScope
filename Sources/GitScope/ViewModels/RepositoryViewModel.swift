@@ -11,6 +11,8 @@ struct RecentRepository: Identifiable, Codable {
 @MainActor final class RepositoryViewModel: ObservableObject {
     @Published var snapshot: RepositorySnapshot?
     @Published var metrics: RepositoryMetrics?
+    @Published var codeQuality: CodeQualityReport?
+    @Published var codeQualityCacheStatus: CodeQualityCacheStatus?
     @Published var options = AnalysisOptions()
     @Published var isLoading = false
     @Published var error: String?
@@ -73,9 +75,15 @@ struct RecentRepository: Identifiable, Codable {
                 try Task.checkCancellation()
                 status = "Computing activity, ownership, structure, dependencies and legacy signals…"
                 let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(result, options: loadedOptions, scan: scanned) }.value
+                status = "Checking selected-revision code quality…"
+                let quality = await Task.detached(priority: .userInitiated) {
+                    CodeQualityCacheService(cacheURL: RepositoryCache.defaultURL)
+                        .loadOrCompute(snapshot: result, metrics: computed, options: loadedOptions)
+                }.value
                 try Task.checkCancellation()
                 if snapshot?.root != result.root { structureFolder = "" }
-                snapshot = result; metrics = computed; options = loadedOptions; accessURL = url; scan = scanned; ruleSettings = rules
+                snapshot = result; metrics = computed; codeQuality = quality.report; codeQualityCacheStatus = quality.status; options = loadedOptions; accessURL = url
+                scan = scanned; ruleSettings = rules
                 if computed.structure.folders[structureFolder] == nil { structureFolder = "" }
                 selectedHotspot = nil; inspectedLocation = nil; search = ""; remember(url, root: result.root)
             } catch is CancellationError { }
@@ -90,8 +98,12 @@ struct RecentRepository: Identifiable, Codable {
             defer { isLoading = false }
             let scan = self.scan
             let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(snapshot, options: draft, scan: scan) }.value
+            let quality = await Task.detached(priority: .userInitiated) {
+                CodeQualityCacheService(cacheURL: RepositoryCache.defaultURL)
+                    .loadOrCompute(snapshot: snapshot, metrics: computed, options: draft)
+            }.value
             guard !Task.isCancelled else { return }
-            metrics = computed; options = draft; selectedHotspot = nil
+            metrics = computed; codeQuality = quality.report; codeQualityCacheStatus = quality.status; options = draft; selectedHotspot = nil
             if computed.structure.folders[structureFolder] == nil { structureFolder = "" }
             if let data = try? JSONEncoder().encode(draft) { defaults.set(data, forKey: "options." + snapshot.root.path) }
         }
