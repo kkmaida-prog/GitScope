@@ -11,7 +11,9 @@ public enum GitError: LocalizedError {
 }
 public struct GitCommandRunner: Sendable {
     public init() {}
-    public func run(_ arguments: [String], at url: URL) throws -> Data {
+    /// Runs Git with optional standard input. `allowedStatuses` lists exit codes that are not failures
+    /// (for example `git grep` exits with 1 when nothing matches).
+    public func run(_ arguments: [String], at url: URL, input: Data? = nil, allowedStatuses: Set<Int32> = [0]) throws -> Data {
         try Task.checkCancellation()
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -22,11 +24,19 @@ public struct GitCommandRunner: Sendable {
         _ = FileManager.default.createFile(atPath: errorURL.path, contents: nil)
         let output = try FileHandle(forWritingTo: outputURL), errors = try FileHandle(forWritingTo: errorURL)
         defer { try? output.close(); try? errors.close() }
+        // Input also goes through a file, so large inputs cannot deadlock against unread output.
+        var inputHandle: FileHandle?
+        if let input {
+            let inputURL = directory.appendingPathComponent("stdin")
+            try input.write(to: inputURL)
+            inputHandle = try FileHandle(forReadingFrom: inputURL)
+        }
+        defer { try? inputHandle?.close() }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = ["--no-pager", "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "diff.external=", "-c", "core.quotePath=false", "-C", url.path] + arguments
         process.environment = ["PATH": "/usr/bin:/bin", "LC_ALL": "C", "GIT_CONFIG_NOSYSTEM": "1", "GIT_CONFIG_GLOBAL": "/dev/null", "GIT_OPTIONAL_LOCKS": "0", "GIT_TERMINAL_PROMPT": "0", "GIT_NO_LAZY_FETCH": "1"]
-        process.standardOutput = output; process.standardError = errors; process.standardInput = FileHandle.nullDevice
+        process.standardOutput = output; process.standardError = errors; process.standardInput = inputHandle ?? FileHandle.nullDevice
         try process.run()
         func withinOutputLimits() -> Bool {
             let count = ((try? FileManager.default.attributesOfItem(atPath: outputURL.path)[.size]) as? NSNumber)?.uint64Value ?? 0
@@ -52,7 +62,7 @@ public struct GitCommandRunner: Sendable {
         process.waitUntilExit()
         try Task.checkCancellation()
         guard withinOutputLimits() else { throw GitError.limit }
-        guard process.terminationStatus == 0 else {
+        guard allowedStatuses.contains(process.terminationStatus) else {
             let message = String(decoding: try Data(contentsOf: errorURL), as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             throw GitError.failed(message.isEmpty ? "Git could not read this repository." : message)
         }
@@ -87,9 +97,21 @@ public struct GitRepositoryService: Sendable {
         do { previous = try cache?.read(root: root, reference: reference) }
         catch { warning = "Local cache could not be read; history was re-imported." }
         if let previous, previous.head == head, previous.shallow == shallow {
+            var manifests = previous.manifests, current = previous.currentManifests, manifestWarning = previous.manifestWarning
+            if manifestWarning != nil {
+                // A previous dependency-history read failed; retry it without re-importing commits.
+                do {
+                    let read = try ManifestHistoryReader(runner: runner).read(range: head, head: head, at: root)
+                    manifests = read.revisions; current = read.current; manifestWarning = nil
+                    try? cache?.write(RepositorySnapshot(root: root, head: head, shallow: shallow, commits: previous.commits, fileSizes: previous.fileSizes,
+                                                         reference: reference, branches: branches, manifests: manifests, currentManifests: current))
+                } catch is CancellationError { throw CancellationError() }
+                catch { manifestWarning = ManifestHistoryReader.warning(for: error) }
+            }
             return RepositorySnapshot(root: root, head: head, shallow: shallow, commits: previous.commits,
                                       fileSizes: previous.fileSizes, reference: reference, branches: branches,
-                                      importMode: .cached, importedCommits: 0)
+                                      importMode: .cached, importedCommits: 0, cacheWarning: warning,
+                                      manifests: manifests, currentManifests: current, manifestWarning: manifestWarning)
         }
         var base: RepositorySnapshot?
         if let previous, !shallow, !previous.shallow {
@@ -108,15 +130,28 @@ public struct GitRepositoryService: Sendable {
             $0.date == $1.date ? $0.id < $1.id : $0.date > $1.date
         }
         let sizes = try parser.parseTree(runner.run(["ls-tree", "-r", "-l", "-z", head, "--"], at: root))
+        // Dependency history is best effort: a failure keeps commit metrics available and is reported.
+        var manifests: [ManifestRevision] = []
+        var currentManifests: [String: [DependencyDeclaration]] = [:]
+        var manifestWarning: String?
+        let reusable = base.flatMap { $0.manifestWarning == nil ? $0 : nil }
+        do {
+            let read = try ManifestHistoryReader(runner: runner).read(range: reusable == nil ? head : range, head: head, at: root)
+            var seenRevisions = Set<String>()
+            manifests = (read.revisions + (reusable?.manifests ?? [])).filter { seenRevisions.insert($0.commit + "\0" + $0.path).inserted }
+            currentManifests = read.current
+        } catch is CancellationError { throw CancellationError() }
+        catch { manifestWarning = ManifestHistoryReader.warning(for: error) }
         let snapshot = RepositorySnapshot(root: root, head: head, shallow: shallow, commits: commits, fileSizes: sizes,
                                           reference: reference, branches: branches, importMode: base == nil ? .fresh : .incremental,
-                                          importedCommits: imported.count)
+                                          importedCommits: imported.count, manifests: manifests, currentManifests: currentManifests, manifestWarning: manifestWarning)
         do { try cache?.write(snapshot) }
         catch is CancellationError { throw CancellationError() }
         catch { warning = "Analysis succeeded, but the local cache could not be saved." }
         try Task.checkCancellation()
         return RepositorySnapshot(root: root, head: head, shallow: shallow, commits: commits, fileSizes: sizes,
                                   reference: reference, branches: branches, importMode: snapshot.importMode,
-                                  importedCommits: imported.count, cacheWarning: warning)
+                                  importedCommits: imported.count, cacheWarning: warning,
+                                  manifests: manifests, currentManifests: currentManifests, manifestWarning: manifestWarning)
     }
 }

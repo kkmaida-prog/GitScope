@@ -1,5 +1,9 @@
 import Foundation
+#if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 
 public struct AnalysisOptions: Codable, Equatable, Sendable {
     public var since: Date?
@@ -33,7 +37,8 @@ public struct AnalysisOptions: Codable, Equatable, Sendable {
         }
         return RepositorySnapshot(root: snapshot.root, head: snapshot.head, shallow: snapshot.shallow, commits: commits,
                                   fileSizes: snapshot.fileSizes.filter { includes(path: $0.key) }, reference: snapshot.reference,
-                                  branches: snapshot.branches, importMode: snapshot.importMode, importedCommits: snapshot.importedCommits)
+                                  branches: snapshot.branches, importMode: snapshot.importMode, importedCommits: snapshot.importedCommits,
+                                  cacheWarning: snapshot.cacheWarning, manifests: snapshot.manifests, currentManifests: snapshot.currentManifests, manifestWarning: snapshot.manifestWarning)
     }
 }
 private extension ComparisonResult {

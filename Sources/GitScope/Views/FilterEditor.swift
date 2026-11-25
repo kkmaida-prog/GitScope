@@ -22,7 +22,7 @@ struct FilterEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("Shared analysis filters").font(.title2.bold())
-            Text("Every view uses these rules. Dates use UTC; the end day is included.").font(.caption).foregroundStyle(.secondary)
+            Text("Dates use UTC. The end day is included.").font(.caption).foregroundStyle(.secondary)
             Form {
                 Section("Time range") {
                     Toggle("Start day", isOn: $useStart)
@@ -37,9 +37,9 @@ struct FilterEditor: View {
                     Stepper("Bulk limit: \(draft.maximumFilesPerCommit == 0 ? "disabled" : "\(draft.maximumFilesPerCommit) files")", value: $draft.maximumFilesPerCommit, in: 0...500, step: 10)
                     Text("Commits above the bulk limit are omitted before path filtering. Merge commits are always excluded.").font(.caption).foregroundStyle(.secondary)
                 }
-                Section("Excluded path globs — one per line") {
+                Section("Excluded path globs - one per line") {
                     TextEditor(text: $patterns).font(.system(.body, design: .monospaced)).frame(height: 70)
-                    Text(verbatim: "Examples: vendor/*, *.lock, */generated/*. Asterisk matches across folders. Empty means no path exclusions.").font(.caption).foregroundStyle(.secondary)
+                    Text(verbatim: "Examples: vendor/*, *.lock, */generated/*. Asterisk matches across folders.").font(.caption).foregroundStyle(.secondary)
                 }
                 Section("Coupling thresholds") {
                     Stepper("Minimum joint commits: \(draft.minimumJointCommits)", value: $draft.minimumJointCommits, in: 1...100)

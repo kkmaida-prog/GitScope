@@ -21,6 +21,12 @@ struct RecentRepository: Identifiable, Codable {
     @Published var selectedHotspot: Hotspot?
     @Published var recents: [RecentRepository] = []
     @Published var status = ""
+    /// Line-level evidence for the selected revision; nil until the first scan completes.
+    @Published var scan: CodeScan?
+    @Published var ruleSettings = LegacyRuleSettings()
+    /// Folder shown by the Structure view; the empty string is the repository root.
+    @Published var structureFolder = ""
+    @Published var inspectedLocation: CodeLocation?
     private var task: Task<Void, Never>?
     private let defaults = UserDefaults.standard
     init() {
@@ -63,16 +69,23 @@ struct RecentRepository: Identifiable, Codable {
                 if snapshot?.root == result.root { loadedOptions = options }
                 else if let data = defaults.data(forKey: "options." + result.root.path), let saved = try? JSONDecoder().decode(AnalysisOptions.self, from: data) { loadedOptions = saved }
                 else { loadedOptions = AnalysisOptions() }
-                status = "Computing activity, ownership and coupling…"
-                let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(result, options: loadedOptions) }.value
+                let rules = snapshot?.root == result.root ? ruleSettings : storedRules(for: result.root)
+                status = "Scanning code at the selected revision…"
+                let scanned = try await CodebaseScanner().scan(result, rules: rules.effectiveRules)
+                try Task.checkCancellation()
+                status = "Computing activity, ownership, structure, dependencies and legacy signals…"
+                let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(result, options: loadedOptions, scan: scanned) }.value
                 status = "Checking selected-revision code quality…"
                 let quality = await Task.detached(priority: .userInitiated) {
                     CodeQualityCacheService(cacheURL: RepositoryCache.defaultURL)
                         .loadOrCompute(snapshot: result, metrics: computed, options: loadedOptions)
                 }.value
                 try Task.checkCancellation()
+                if snapshot?.root != result.root { structureFolder = "" }
                 snapshot = result; metrics = computed; codeQuality = quality.report; codeQualityCacheStatus = quality.status; options = loadedOptions; accessURL = url
-                selectedHotspot = nil; search = ""; remember(url, root: result.root)
+                scan = scanned; ruleSettings = rules
+                if computed.structure.folders[structureFolder] == nil { structureFolder = "" }
+                selectedHotspot = nil; inspectedLocation = nil; search = ""; remember(url, root: result.root)
             } catch is CancellationError { }
             catch { self.error = error.localizedDescription }
         }
@@ -83,16 +96,60 @@ struct RecentRepository: Identifiable, Codable {
         isLoading = true; status = "Applying shared filters…"
         task = Task {
             defer { isLoading = false }
-            let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(snapshot, options: draft) }.value
+            let scan = self.scan
+            let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(snapshot, options: draft, scan: scan) }.value
             let quality = await Task.detached(priority: .userInitiated) {
                 CodeQualityCacheService(cacheURL: RepositoryCache.defaultURL)
                     .loadOrCompute(snapshot: snapshot, metrics: computed, options: draft)
             }.value
             guard !Task.isCancelled else { return }
             metrics = computed; codeQuality = quality.report; codeQualityCacheStatus = quality.status; options = draft; selectedHotspot = nil
+            if computed.structure.folders[structureFolder] == nil { structureFolder = "" }
             if let data = try? JSONEncoder().encode(draft) { defaults.set(data, forKey: "options." + snapshot.root.path) }
         }
     }
     func cancel() { task?.cancel() }
+
+    // MARK: Legacy rules and line evidence
+
+    private func storedRules(for root: URL) -> LegacyRuleSettings {
+        guard let data = defaults.data(forKey: "legacyRules." + root.path), let saved = try? JSONDecoder().decode(LegacyRuleSettings.self, from: data) else { return LegacyRuleSettings() }
+        return saved
+    }
+    /// Saves the rules for this repository and rescans the pinned revision. History is not re-imported.
+    func updateRules(_ settings: LegacyRuleSettings) {
+        guard let snapshot, !isLoading else { return }
+        if let data = try? JSONEncoder().encode(settings) { defaults.set(data, forKey: "legacyRules." + snapshot.root.path) }
+        isLoading = true; status = "Rescanning code with the updated rules…"
+        let url = accessURL, options = self.options
+        task = Task {
+            let scoped = url?.startAccessingSecurityScopedResource() ?? false
+            defer { if scoped { url?.stopAccessingSecurityScopedResource() }; isLoading = false }
+            do {
+                let scanned = try await CodebaseScanner().scan(snapshot, rules: settings.effectiveRules)
+                let computed = await Task.detached(priority: .userInitiated) { AnalysisEngine().compute(snapshot, options: options, scan: scanned) }.value
+                try Task.checkCancellation()
+                ruleSettings = settings; scan = scanned; metrics = computed
+            } catch is CancellationError { }
+            catch { self.error = error.localizedDescription }
+        }
+    }
+    /// Reads lines around a location and blames the focused line, at the pinned revision.
+    func context(path: String, line: Int?) async throws -> CodeContext {
+        guard let snapshot else { throw GitError.failed("Open a repository first.") }
+        let url = accessURL
+        return try await Task.detached(priority: .userInitiated) {
+            let scoped = url?.startAccessingSecurityScopedResource() ?? false
+            defer { if scoped { url?.stopAccessingSecurityScopedResource() } }
+            return try CodebaseScanner().context(root: snapshot.root, head: snapshot.head, path: path, line: line)
+        }.value
+    }
+    func inspect(path: String, line: Int? = nil) {
+        guard let metrics else { return }
+        inspectedLocation = CodeLocation(path: path, line: line, metrics: metrics)
+    }
+    func showFolder(_ path: String) {
+        structureFolder = path; selection = "Structure"
+    }
     var hotspots: [Hotspot] { (metrics?.hotspots ?? []).filter { search.isEmpty || $0.path.localizedCaseInsensitiveContains(search) } }
 }
